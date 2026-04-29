@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "346306205765",
-    "project_id": "gracecourt-global",
-    "storage_bucket": "gracecourt-global.firebasestorage.app"
+    "project_number": "188586562886",
+    "project_id": "gracecourt-global-fbda7",
+    "storage_bucket": "gracecourt-global-fbda7.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:346306205765:android:207763ba2ac7056f64ab2c",
+        "mobilesdk_app_id": "1:188586562886:android:d78e537b7fb14aa1d1c147",
         "android_client_info": {
           "package_name": "com.gracecourt.globalapp"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAw3fMw9x2q6NZcQyDJmfDQkHJSXPBtdlI"
+          "current_key": "AIzaSyDl_AFDfgRkGFKffZ0HsuXkqGQ2KPxCyAk"
         }
       ],
       "services": {
