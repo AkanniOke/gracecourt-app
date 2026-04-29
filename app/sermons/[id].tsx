@@ -28,6 +28,23 @@ import { supabase } from '@/lib/supabase';
 const SERMON_SUMMARY_PLACEHOLDER =
   'A focused message on living with conviction, faith, and steady confidence in God through every season.';
 const SCRIPTURE_REFERENCE_PLACEHOLDER = 'Scripture Focus: Romans 12:2, Hebrews 11:1';
+const SEEK_INTERVAL_SECONDS = 10;
+
+function clampPlaybackTime(value: number, minimum: number, maximum: number) {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function formatPlaybackTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return '00:00';
+  }
+
+  const roundedSeconds = Math.floor(seconds);
+  const minutes = Math.floor(roundedSeconds / 60);
+  const remainingSeconds = roundedSeconds % 60;
+
+  return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+}
 
 export default function SermonDetailScreen() {
   const params = useLocalSearchParams<{
@@ -229,6 +246,9 @@ export default function SermonDetailScreen() {
   const isBuffering = playerStatus.isBuffering;
   const isPlaying = playerStatus.playing;
   const showPauseButton = playerStatus.playing || playerStatus.isBuffering;
+  const currentPlaybackTime = Number.isFinite(playerStatus.currentTime) ? playerStatus.currentTime : 0;
+  const playbackDuration = Number.isFinite(playerStatus.duration) ? playerStatus.duration : 0;
+  const playbackProgress = playbackDuration > 0 ? currentPlaybackTime / playbackDuration : 0;
 
   const handleTogglePlayback = () => {
     if (!sermon || !playbackSource) {
@@ -255,6 +275,28 @@ export default function SermonDetailScreen() {
       player.play();
     } catch (error) {
       console.error('Failed to toggle sermon playback.', error);
+    }
+  };
+
+  const handleSeekBy = async (seconds: number) => {
+    if (!playbackSource) {
+      return;
+    }
+
+    try {
+      if (loadedPlaybackSource !== playbackSource) {
+        player.replace(playbackSource);
+        setLoadedPlaybackSource(playbackSource);
+      }
+
+      const nextPlaybackTime =
+        playbackDuration > 0
+          ? clampPlaybackTime(currentPlaybackTime + seconds, 0, playbackDuration)
+          : Math.max(currentPlaybackTime + seconds, 0);
+
+      await player.seekTo(nextPlaybackTime);
+    } catch (error) {
+      console.error('Failed to seek sermon playback.', error);
     }
   };
 
@@ -420,15 +462,77 @@ export default function SermonDetailScreen() {
                           : 'Audio unavailable'}
                 </Text>
 
-                <InteractivePressable
-                  accessibilityRole="button"
-                  activeOpacity={playbackSource ? 0.92 : 1}
-                  onPress={handleTogglePlayback}
-                  scaleTo={playbackSource ? 0.98 : 1}
-                  style={[styles.primaryPlayerButton, !playbackSource && styles.secondaryActionDisabled]}>
-                  <Ionicons name={playButtonIcon} size={22} color={GraceCourtColors.surface} />
-                  <Text style={styles.primaryPlayerLabel}>{playButtonLabel}</Text>
-                </InteractivePressable>
+                <View style={styles.progressSummaryRow}>
+                  <Text style={styles.progressTimeText}>
+                    {formatPlaybackTime(currentPlaybackTime)}
+                  </Text>
+                  <Text style={styles.progressTimeText}>
+                    {formatPlaybackTime(playbackDuration)}
+                  </Text>
+                </View>
+
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${Math.max(0, Math.min(playbackProgress, 1)) * 100}%` },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.transportRow}>
+                  <InteractivePressable
+                    accessibilityRole="button"
+                    activeOpacity={playbackSource ? 0.92 : 1}
+                    onPress={() => {
+                      void handleSeekBy(-SEEK_INTERVAL_SECONDS);
+                    }}
+                    scaleTo={playbackSource ? 0.98 : 1}
+                    style={[
+                      styles.transportSecondaryButton,
+                      !playbackSource && styles.secondaryActionDisabled,
+                    ]}>
+                    <Ionicons
+                      name="play-back-outline"
+                      size={20}
+                      color={GraceCourtColors.accent}
+                    />
+                    <Text style={styles.transportSecondaryLabel}>-10s</Text>
+                  </InteractivePressable>
+
+                  <InteractivePressable
+                    accessibilityRole="button"
+                    activeOpacity={playbackSource ? 0.92 : 1}
+                    onPress={handleTogglePlayback}
+                    scaleTo={playbackSource ? 0.98 : 1}
+                    style={[
+                      styles.primaryPlayerButton,
+                      styles.transportPrimaryButton,
+                      !playbackSource && styles.secondaryActionDisabled,
+                    ]}>
+                    <Ionicons name={playButtonIcon} size={22} color={GraceCourtColors.surface} />
+                    <Text style={styles.primaryPlayerLabel}>{playButtonLabel}</Text>
+                  </InteractivePressable>
+
+                  <InteractivePressable
+                    accessibilityRole="button"
+                    activeOpacity={playbackSource ? 0.92 : 1}
+                    onPress={() => {
+                      void handleSeekBy(SEEK_INTERVAL_SECONDS);
+                    }}
+                    scaleTo={playbackSource ? 0.98 : 1}
+                    style={[
+                      styles.transportSecondaryButton,
+                      !playbackSource && styles.secondaryActionDisabled,
+                    ]}>
+                    <Ionicons
+                      name="play-forward-outline"
+                      size={20}
+                      color={GraceCourtColors.accent}
+                    />
+                    <Text style={styles.transportSecondaryLabel}>+10s</Text>
+                  </InteractivePressable>
+                </View>
               </View>
 
               <View style={styles.actionsCard}>
@@ -621,7 +725,35 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: GraceCourtColors.textSecondary,
-    marginBottom: 22,
+    marginBottom: 16,
+  },
+  progressSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  progressTimeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: GraceCourtColors.accentSoft,
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: GraceCourtRadius.pill,
+    backgroundColor: GraceCourtColors.tintSurface,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: GraceCourtRadius.pill,
+    backgroundColor: GraceCourtColors.accent,
+  },
+  transportRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 12,
   },
   primaryPlayerButton: {
     flexDirection: 'row',
@@ -634,10 +766,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     ...GraceCourtShadows.accent,
   },
+  transportPrimaryButton: {
+    flex: 1,
+  },
   primaryPlayerLabel: {
     fontSize: 16,
     fontWeight: '800',
     color: GraceCourtColors.surface,
+  },
+  transportSecondaryButton: {
+    minWidth: 86,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: GraceCourtColors.tintSurface,
+    borderRadius: GraceCourtRadius.pill,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  transportSecondaryLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: GraceCourtColors.accent,
   },
   actionsRow: {
     flexDirection: 'row',

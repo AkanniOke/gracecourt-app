@@ -31,7 +31,8 @@ type FffCentreRecord = {
   meeting_day: string;
   meeting_time: string;
   name: string;
-  phone: string;
+  phone: string | null;
+  whatsapp_link: string | null;
 };
 
 type FeedbackTone = 'error' | 'success';
@@ -43,6 +44,7 @@ const emptyForm = {
   meetingTime: '',
   name: '',
   phone: '',
+  whatsappLink: '',
 };
 
 export default function ManageFffCentresScreen() {
@@ -59,6 +61,7 @@ export default function ManageFffCentresScreen() {
   const [meetingTime, setMeetingTime] = useState(emptyForm.meetingTime);
   const [leader, setLeader] = useState(emptyForm.leader);
   const [phone, setPhone] = useState(emptyForm.phone);
+  const [whatsappLink, setWhatsappLink] = useState(emptyForm.whatsappLink);
   const [listErrorMessage, setListErrorMessage] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>('success');
@@ -70,6 +73,7 @@ export default function ManageFffCentresScreen() {
     setMeetingTime(emptyForm.meetingTime);
     setLeader(emptyForm.leader);
     setPhone(emptyForm.phone);
+    setWhatsappLink(emptyForm.whatsappLink);
     setEditingCentreId(null);
   };
 
@@ -82,7 +86,7 @@ export default function ManageFffCentresScreen() {
     try {
       const { data, error } = await supabase
         .from('fff_centres')
-        .select('id, name, location, meeting_day, meeting_time, leader, phone, created_at')
+        .select('id, name, location, meeting_day, meeting_time, leader, phone, whatsapp_link, created_at')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -98,7 +102,8 @@ export default function ManageFffCentresScreen() {
           meeting_day: item.meeting_day,
           meeting_time: item.meeting_time,
           name: item.name,
-          phone: item.phone,
+          phone: item.phone ?? null,
+          whatsapp_link: item.whatsapp_link ?? null,
         }))
       );
       setListErrorMessage('');
@@ -131,18 +136,26 @@ export default function ManageFffCentresScreen() {
     const trimmedMeetingTime = meetingTime.trim();
     const trimmedLeader = leader.trim();
     const trimmedPhone = phone.trim();
+    const trimmedWhatsappLink = whatsappLink.trim();
 
     if (
       !trimmedName ||
       !trimmedLocation ||
       !trimmedMeetingDay ||
       !trimmedMeetingTime ||
-      !trimmedLeader ||
-      !trimmedPhone
+      !trimmedLeader
     ) {
       setFeedback(
         'error',
-        'Complete the name, location, meeting day, meeting time, leader, and phone before saving.'
+        'Complete the name, location, meeting day, meeting time, and leader before saving.'
+      );
+      return null;
+    }
+
+    if (!trimmedPhone && !trimmedWhatsappLink) {
+      setFeedback(
+        'error',
+        'Add at least a phone number or a WhatsApp link so members can reach this centre.'
       );
       return null;
     }
@@ -153,7 +166,8 @@ export default function ManageFffCentresScreen() {
       meeting_day: trimmedMeetingDay,
       meeting_time: trimmedMeetingTime,
       name: trimmedName,
-      phone: trimmedPhone,
+      phone: trimmedPhone || null,
+      whatsapp_link: trimmedWhatsappLink || null,
     };
   };
 
@@ -210,7 +224,8 @@ export default function ManageFffCentresScreen() {
     setMeetingDay(centre.meeting_day);
     setMeetingTime(centre.meeting_time);
     setLeader(centre.leader);
-    setPhone(centre.phone);
+    setPhone(centre.phone ?? '');
+    setWhatsappLink(centre.whatsapp_link ?? '');
     setFeedback('success', 'Editing FFF centre. Update the fields and save when ready.');
   };
 
@@ -404,6 +419,19 @@ export default function ManageFffCentresScreen() {
                   value={phone}
                 />
               </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>WhatsApp Link</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  keyboardType="url"
+                  onChangeText={setWhatsappLink}
+                  placeholder="https://wa.me/2348012345678"
+                  placeholderTextColor={GraceCourtColors.textMuted}
+                  style={styles.input}
+                  value={whatsappLink}
+                />
+              </View>
             </View>
 
             {feedbackMessage ? (
@@ -531,7 +559,23 @@ export default function ManageFffCentresScreen() {
                           </View>
                           <View style={styles.metaTextWrap}>
                             <Text style={styles.metaLabel}>Phone</Text>
-                            <Text style={styles.metaValue}>{centre.phone}</Text>
+                            <Text style={styles.metaValue}>{centre.phone ?? 'Not added yet'}</Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.metaRow}>
+                          <View style={styles.metaIconWrap}>
+                            <Ionicons
+                              name="logo-whatsapp"
+                              size={16}
+                              color={GraceCourtColors.accent}
+                            />
+                          </View>
+                          <View style={styles.metaTextWrap}>
+                            <Text style={styles.metaLabel}>WhatsApp Link</Text>
+                            <Text style={styles.metaValue}>
+                              {centre.whatsapp_link ?? 'Not added yet'}
+                            </Text>
                           </View>
                         </View>
                       </View>

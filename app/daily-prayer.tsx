@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { FadeInView } from '@/components/fade-in-view';
 import { InteractivePressable } from '@/components/interactive-pressable';
@@ -10,13 +10,14 @@ type PrayerItem = {
   id: string;
   title: string;
   content: string;
-  bibleVerse: string;
+  bibleVerse: string | null;
   date: string;
 };
 
 export default function DailyPrayerScreen() {
   const [todayPrayer, setTodayPrayer] = useState<PrayerItem | null>(null);
   const [previousPrayers, setPreviousPrayers] = useState<PrayerItem[]>([]);
+  const [expandedPrayerId, setExpandedPrayerId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const currentDate = new Intl.DateTimeFormat('en-US', {
@@ -79,6 +80,30 @@ export default function DailyPrayerScreen() {
     };
   }, []);
 
+  const handleSharePrayer = async () => {
+    if (!todayPrayer) {
+      return;
+    }
+
+    const shareLines = [
+      todayPrayer.title,
+      todayPrayer.bibleVerse ? `Bible Verse: ${todayPrayer.bibleVerse}` : 'Bible Verse: Not provided',
+      '',
+      todayPrayer.content,
+      '',
+      'GraceCourt Global',
+    ];
+
+    try {
+      await Share.share({
+        title: todayPrayer.title,
+        message: shareLines.join('\n'),
+      });
+    } catch (error) {
+      console.error('Failed to share daily prayer.', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -124,7 +149,9 @@ export default function DailyPrayerScreen() {
               <InteractivePressable
                 accessibilityRole="button"
                 activeOpacity={0.9}
-                onPress={() => {}}
+                onPress={() => {
+                  void handleSharePrayer();
+                }}
                 scaleTo={0.98}
                 style={styles.shareButton}>
                 <Ionicons name="share-social-outline" size={18} color="#FFFFFF" />
@@ -142,15 +169,42 @@ export default function DailyPrayerScreen() {
                   </View>
                 ) : (
                   <View style={styles.previousList}>
-                    {previousPrayers.map((item) => (
-                      <InteractivePressable
-                        key={item.id}
-                        onPress={() => {}}
-                        style={styles.previousItem}>
-                        <Text style={styles.previousItemTitle}>{item.title}</Text>
-                        <Text style={styles.previousItemDate}>{item.date}</Text>
-                      </InteractivePressable>
-                    ))}
+                    {previousPrayers.map((item) => {
+                      const isExpanded = expandedPrayerId === item.id;
+
+                      return (
+                        <InteractivePressable
+                          key={item.id}
+                          onPress={() => {
+                            setExpandedPrayerId(isExpanded ? null : item.id);
+                          }}
+                          style={styles.previousItem}>
+                          <View style={styles.previousItemHeader}>
+                            <View style={styles.previousItemHeaderText}>
+                              <Text style={styles.previousItemTitle}>{item.title}</Text>
+                              <Text style={styles.previousItemDate}>{item.date}</Text>
+                            </View>
+                            <Ionicons
+                              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                              size={18}
+                              color="#5E739B"
+                            />
+                          </View>
+
+                          {isExpanded ? (
+                            <View style={styles.previousPrayerContent}>
+                              {item.bibleVerse ? (
+                                <View style={styles.previousVerseSection}>
+                                  <Text style={styles.previousSectionLabel}>Bible Verse</Text>
+                                  <Text style={styles.previousVerseText}>{item.bibleVerse}</Text>
+                                </View>
+                              ) : null}
+                              <Text style={styles.previousPrayerText}>{item.content}</Text>
+                            </View>
+                          ) : null}
+                        </InteractivePressable>
+                      );
+                    })}
                   </View>
                 )}
               </View>
@@ -345,6 +399,15 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 3,
   },
+  previousItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  previousItemHeaderText: {
+    flex: 1,
+  },
   previousItemTitle: {
     fontSize: 16,
     fontWeight: '700',
@@ -354,5 +417,36 @@ const styles = StyleSheet.create({
   previousItemDate: {
     fontSize: 13,
     color: '#5E739B',
+  },
+  previousPrayerContent: {
+    marginTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F4',
+    paddingTop: 14,
+    gap: 12,
+  },
+  previousVerseSection: {
+    backgroundColor: '#EEF3FC',
+    borderRadius: 14,
+    padding: 14,
+  },
+  previousSectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    color: '#0A2E73',
+    marginBottom: 6,
+  },
+  previousVerseText: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#31476E',
+    fontStyle: 'italic',
+  },
+  previousPrayerText: {
+    fontSize: 15,
+    lineHeight: 24,
+    color: '#1B2433',
   },
 });

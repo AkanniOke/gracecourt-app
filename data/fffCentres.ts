@@ -5,8 +5,14 @@ export type FffCentre = {
   meetingDay: string;
   meetingTime: string;
   leader: string;
-  phone: string;
+  phone: string | null;
+  whatsappLink: string | null;
 };
+
+export const fffGeneralContact = {
+  phone: '+234 814 2695 934',
+  whatsappLink: null,
+} as const;
 
 export const fffCentres: FffCentre[] = [
   {
@@ -17,6 +23,7 @@ export const fffCentres: FffCentre[] = [
     meetingTime: '6:00 PM',
     leader: 'Bro. Paul Adegoke',
     phone: '08012345678',
+    whatsappLink: null,
   },
   {
     id: 'fff-olodo-centre',
@@ -26,6 +33,7 @@ export const fffCentres: FffCentre[] = [
     meetingTime: '6:00 PM',
     leader: 'Min. Peterson.',
     phone: '08012345679',
+    whatsappLink: null,
   },
   {
     id: 'fff-sawmill-centre',
@@ -35,6 +43,7 @@ export const fffCentres: FffCentre[] = [
     meetingTime: '6:00 PM',
     leader: 'Sis. Blessing.',
     phone: '08012345680',
+    whatsappLink: null,
   },
   {
     id: 'fff-iyana-church-centre',
@@ -44,5 +53,6 @@ export const fffCentres: FffCentre[] = [
     meetingTime: '6:00 PM',
     leader: 'Min. Ife Clem',
     phone: '08012345681',
+    whatsappLink: null,
   },
 ];

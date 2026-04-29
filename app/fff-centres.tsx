@@ -1,15 +1,108 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { Linking, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useDeferredValue, useEffect, useState } from 'react';
+import {
+  Alert,
+  Linking,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { FadeInView } from '@/components/fade-in-view';
 import { InteractivePressable } from '@/components/interactive-pressable';
-import type { FffCentre } from '@/data/fffCentres';
+import { fffGeneralContact, type FffCentre } from '@/data/fffCentres';
 import { supabase } from '@/lib/supabase';
+
+const CONTACT_UNAVAILABLE_TITLE = 'Contact unavailable';
+
+function getPhoneText(phone: unknown) {
+  if (phone == null) {
+    return null;
+  }
+
+  const normalizedPhone = String(phone).trim();
+  return normalizedPhone.length > 0 ? normalizedPhone : null;
+}
+
+function getNormalizedPhoneDigits(phone: unknown) {
+  const normalizedPhone = getPhoneText(phone);
+  return normalizedPhone ? normalizedPhone.replace(/\D/g, '') : '';
+}
+
+function hasConfiguredPhoneNumber(phone: unknown) {
+  const normalizedPhone = getPhoneText(phone);
+
+  if (!normalizedPhone || /x/i.test(normalizedPhone)) {
+    return false;
+  }
+
+  return getNormalizedPhoneDigits(phone).length >= 7;
+}
+
+function getDialerPhoneNumber(phone: unknown) {
+  if (!hasConfiguredPhoneNumber(phone)) {
+    return null;
+  }
+
+  const normalizedPhone = getPhoneText(phone);
+
+  if (!normalizedPhone) {
+    return null;
+  }
+
+  return normalizedPhone.replace(/(?!^\+)[\s\-()]/g, '');
+}
+
+function buildPhoneCallUrl(phone: unknown) {
+  const dialerPhoneNumber = getDialerPhoneNumber(phone);
+  return dialerPhoneNumber ? `tel:${dialerPhoneNumber}` : null;
+}
+
+function buildWhatsAppUrl(
+  phone: unknown,
+  whatsappLink: string | null | undefined
+) {
+  const trimmedWhatsAppLink = whatsappLink?.trim();
+
+  if (trimmedWhatsAppLink) {
+    return trimmedWhatsAppLink;
+  }
+
+  if (!hasConfiguredPhoneNumber(phone)) {
+    return null;
+  }
+
+  return `https://wa.me/${getNormalizedPhoneDigits(phone)}`;
+}
+
+async function openUrlIfPossible(url: string | null) {
+  if (!url) {
+    return false;
+  }
+
+  try {
+    const canOpen = await Linking.canOpenURL(url);
+
+    if (!canOpen) {
+      return false;
+    }
+
+    await Linking.openURL(url);
+    return true;
+  } catch (error) {
+    console.error('Failed to open external contact link.', error);
+    return false;
+  }
+}
 
 export default function FffCentresScreen() {
   const [fffCentres, setFffCentres] = useState<FffCentre[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   useEffect(() => {
     let mounted = true;
@@ -18,7 +111,7 @@ export default function FffCentresScreen() {
       try {
         const { data, error } = await supabase
           .from('fff_centres')
-          .select('id, name, location, meeting_day, meeting_time, leader, phone');
+          .select('id, name, location, meeting_day, meeting_time, leader, phone, whatsapp_link');
 
         if (error) {
           throw error;
@@ -33,7 +126,8 @@ export default function FffCentresScreen() {
               meetingDay: centre.meeting_day,
               meetingTime: centre.meeting_time,
               leader: centre.leader,
-              phone: centre.phone,
+              phone: centre.phone == null ? null : String(centre.phone),
+              whatsappLink: centre.whatsapp_link ?? null,
             }))
           );
         }
@@ -57,6 +151,73 @@ export default function FffCentresScreen() {
     };
   }, []);
 
+  const handleCallPress = async (contactName: string, phone: unknown) => {
+    const rawPhoneValue = phone == null ? null : String(phone);
+    const cleanedPhoneValue = getDialerPhoneNumber(phone);
+    const phoneCallUrl = buildPhoneCallUrl(phone);
+
+    console.log('FFF centre call tapped.', {
+      centreName: contactName,
+      cleanedPhoneValue,
+      finalTelUrl: phoneCallUrl,
+      rawPhoneValue,
+    });
+
+    if (!phoneCallUrl) {
+      Alert.alert(CONTACT_UNAVAILABLE_TITLE, 'Phone number is not available for this centre.');
+      return;
+    }
+
+    try {
+      await Linking.openURL(phoneCallUrl);
+    } catch (error) {
+      console.error('Failed to open phone dialer.', error);
+      Alert.alert(CONTACT_UNAVAILABLE_TITLE, 'Unable to open phone dialer.');
+    }
+  };
+
+  const handleWhatsAppPress = async (
+    phone: string | null | undefined,
+    whatsappLink: string | null | undefined,
+    unavailableMessage: string
+  ) => {
+    const opened = await openUrlIfPossible(buildWhatsAppUrl(phone, whatsappLink));
+
+    if (!opened) {
+      Alert.alert(CONTACT_UNAVAILABLE_TITLE, unavailableMessage);
+    }
+  };
+
+  const handleJoinCentre = async (centre: FffCentre) => {
+    if (await openUrlIfPossible(centre.whatsappLink?.trim() || null)) {
+      return;
+    }
+
+    if (await openUrlIfPossible(buildWhatsAppUrl(centre.phone, null))) {
+      return;
+    }
+
+    if (await openUrlIfPossible(buildPhoneCallUrl(centre.phone))) {
+      return;
+    }
+
+    Alert.alert(
+      CONTACT_UNAVAILABLE_TITLE,
+      `We could not open a WhatsApp chat or call for ${centre.name} right now. Please try again later.`
+    );
+  };
+
+  const generalWhatsAppMessage =
+    'The general FFF WhatsApp contact is still being updated. Replace the placeholder number when it is ready.';
+  const normalizedSearchQuery = deferredSearchQuery.trim().toLowerCase();
+  const filteredCentres = normalizedSearchQuery
+    ? fffCentres.filter((centre) =>
+        [centre.name, centre.location, centre.leader, centre.meetingDay].some((value) =>
+          value.toLowerCase().includes(normalizedSearchQuery)
+        )
+      )
+    : fffCentres;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -68,7 +229,15 @@ export default function FffCentresScreen() {
 
           <View style={styles.searchShell}>
             <Ionicons name="search" size={18} color="#7A879C" />
-            <Text style={styles.searchText}>Search by area, estate, or centre name</Text>
+            <TextInput
+              autoCapitalize="words"
+              autoCorrect={false}
+              onChangeText={setSearchQuery}
+              placeholder="Search by area, leader, meeting day, or centre name"
+              placeholderTextColor="#7A879C"
+              style={styles.searchInput}
+              value={searchQuery}
+            />
           </View>
 
           <View style={styles.infoCard}>
@@ -98,9 +267,19 @@ export default function FffCentresScreen() {
                 New fellowship centres will appear here as soon as they are added.
               </Text>
             </View>
+          ) : filteredCentres.length === 0 ? (
+            <View style={styles.stateCard}>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="search-outline" size={22} color="#0A2E73" />
+              </View>
+              <Text style={styles.emptyTitle}>No FFF centre found</Text>
+              <Text style={styles.emptyText}>
+                Try another area or contact the church office.
+              </Text>
+            </View>
           ) : (
             <View style={styles.cardList}>
-              {fffCentres.map((centre) => (
+              {filteredCentres.map((centre) => (
                 <InteractivePressable key={centre.id} onPress={() => {}} style={styles.card}>
                   <Text style={styles.cardTitle}>{centre.name}</Text>
 
@@ -131,33 +310,82 @@ export default function FffCentresScreen() {
                       accessibilityRole="button"
                       activeOpacity={0.85}
                       onPress={() => {
-                        void Linking.openURL(`tel:${centre.phone}`);
+                        void handleCallPress(centre.name, centre.phone);
                       }}
                       scaleTo={0.98}
                       style={styles.phoneLink}>
-                      <Text style={styles.metaValue}>{`Phone: ${centre.phone}`}</Text>
+                      <Text style={styles.metaValue}>
+                        {centre.phone ? `Phone: ${centre.phone}` : 'Phone not added yet'}
+                      </Text>
                     </InteractivePressable>
                   </View>
 
-                  <InteractivePressable
-                    accessibilityRole="button"
-                    activeOpacity={0.9}
-                    onPress={() => {}}
-                    scaleTo={0.98}
-                    style={styles.joinButton}>
-                    <Text style={styles.joinButtonText}>Join Centre</Text>
-                  </InteractivePressable>
+                  <View style={styles.cardActionRow}>
+                    <InteractivePressable
+                      accessibilityRole="button"
+                      activeOpacity={0.9}
+                      onPress={() => {
+                        void handleCallPress(centre.name, centre.phone);
+                      }}
+                      scaleTo={0.98}
+                      style={styles.secondaryActionButton}>
+                      <Ionicons name="call-outline" size={16} color="#0A2E73" />
+                      <Text style={styles.secondaryActionText}>Call</Text>
+                    </InteractivePressable>
+
+                    <InteractivePressable
+                      accessibilityRole="button"
+                      activeOpacity={0.9}
+                      onPress={() => {
+                        void handleJoinCentre(centre);
+                      }}
+                      scaleTo={0.98}
+                      style={styles.joinButton}>
+                      <Text style={styles.joinButtonText}>Join Centre</Text>
+                    </InteractivePressable>
+                  </View>
                 </InteractivePressable>
               ))}
             </View>
           )}
 
           <View style={styles.helpCard}>
-            <Text style={styles.helpTitle}>Need help finding a centre?</Text>
+            <Text style={styles.helpTitle}>Can&apos;t find a nearby FFF centre?</Text>
             <Text style={styles.helpText}>
-              Reach out to church admin and we will gladly help you connect with the nearest FFF
-              centre for fellowship and support.
+              Contact us and we&apos;ll guide you to the closest fellowship centre.
             </Text>
+            <Text style={styles.helpContactLabel}>General contact</Text>
+            <Text style={styles.helpContactValue}>{fffGeneralContact.phone}</Text>
+
+            <View style={styles.helpActionsRow}>
+              <InteractivePressable
+                accessibilityRole="button"
+                activeOpacity={0.9}
+                onPress={() => {
+                  void handleCallPress('General admin contact', fffGeneralContact.phone);
+                }}
+                scaleTo={0.98}
+                style={styles.helpCallButton}>
+                <Ionicons name="call-outline" size={18} color="#0A2E73" />
+                <Text style={styles.helpCallButtonText}>Call</Text>
+              </InteractivePressable>
+
+              <InteractivePressable
+                accessibilityRole="button"
+                activeOpacity={0.9}
+                onPress={() => {
+                  void handleWhatsAppPress(
+                    fffGeneralContact.phone,
+                    fffGeneralContact.whatsappLink,
+                    generalWhatsAppMessage
+                  );
+                }}
+                scaleTo={0.98}
+                style={styles.helpWhatsAppButton}>
+                <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" />
+                <Text style={styles.helpWhatsAppButtonText}>WhatsApp</Text>
+              </InteractivePressable>
+            </View>
           </View>
         </FadeInView>
       </ScrollView>
@@ -247,9 +475,11 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 2,
   },
-  searchText: {
+  searchInput: {
+    flex: 1,
     fontSize: 14,
-    color: '#7A879C',
+    color: '#22304D',
+    paddingVertical: 0,
   },
   infoCard: {
     flexDirection: 'row',
@@ -328,8 +558,29 @@ const styles = StyleSheet.create({
   phoneLink: {
     alignSelf: 'flex-start',
   },
-  joinButton: {
+  cardActionRow: {
+    flexDirection: 'row',
+    gap: 12,
     marginTop: 6,
+  },
+  secondaryActionButton: {
+    minWidth: 108,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#EEF3FC',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  secondaryActionText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0A2E73',
+  },
+  joinButton: {
+    flex: 1,
     backgroundColor: '#0A2E73',
     borderRadius: 16,
     paddingVertical: 14,
@@ -350,14 +601,65 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F4',
   },
   helpTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#111111',
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0A2E73',
     marginBottom: 6,
   },
   helpText: {
     fontSize: 14,
     lineHeight: 22,
+    color: '#22304D',
+    marginBottom: 14,
+  },
+  helpContactLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
     color: '#5E739B',
+    marginBottom: 6,
+  },
+  helpContactValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111111',
+    marginBottom: 16,
+  },
+  helpActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  helpCallButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#EEF3FC',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  helpCallButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0A2E73',
+  },
+  helpWhatsAppButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#0A2E73',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  helpWhatsAppButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });
