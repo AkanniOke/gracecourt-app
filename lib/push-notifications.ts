@@ -9,6 +9,8 @@ import { supabase } from '@/lib/supabase';
 
 const STORED_EXPO_PUSH_TOKEN_KEY = 'gracecourt.expoPushToken';
 const STORED_PUSH_TOKEN_USER_ID_KEY = 'gracecourt.pushTokenUserId';
+const PUSH_SETTINGS_NOTICE_FALLBACK =
+  'Notifications could not finish connecting on this device. You can keep using the app normally and try again later.';
 
 type PushRegistrationResult =
   | {
@@ -31,15 +33,8 @@ type RegisterPushOptions = {
 };
 
 const registrationAttempts = new Set<string>();
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+let pendingPushRegistrationNotice: string | null = null;
+let notificationHandlerInstalled = false;
 
 function getEasProjectId() {
   return Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
@@ -63,6 +58,24 @@ function notificationError(message: string, payload?: unknown) {
   console.error(message, payload);
 }
 
+function installNotificationHandler() {
+  if (notificationHandlerInstalled) {
+    return;
+  }
+
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+
+  notificationHandlerInstalled = true;
+  notificationLog('Push notifications: notification handler installed for manual registration flow.');
+}
+
 function getErrorDetails(error: unknown) {
   if (error instanceof Error) {
     return {
@@ -80,6 +93,36 @@ function getErrorDetails(error: unknown) {
 function getNormalizedEmail(email?: string | null) {
   const trimmedEmail = email?.trim().toLowerCase() ?? '';
   return trimmedEmail || null;
+}
+
+function createPushRegistrationNotice(message?: string) {
+  const normalizedMessage = message?.trim();
+
+  if (!normalizedMessage) {
+    return PUSH_SETTINGS_NOTICE_FALLBACK;
+  }
+
+  if (/not available in this build/i.test(normalizedMessage)) {
+    return 'Notifications are not available in this build yet. You can keep using the app normally and try again later.';
+  }
+
+  if (/permission/i.test(normalizedMessage)) {
+    return 'Notification permission is currently unavailable. You can keep using the app normally and try again from Settings later.';
+  }
+
+  return `${PUSH_SETTINGS_NOTICE_FALLBACK} Details: ${normalizedMessage}`;
+}
+
+function setPendingPushRegistrationNotice(message?: string) {
+  pendingPushRegistrationNotice = createPushRegistrationNotice(message);
+}
+
+export function getPendingPushRegistrationNotice() {
+  return pendingPushRegistrationNotice;
+}
+
+export function clearPendingPushRegistrationNotice() {
+  pendingPushRegistrationNotice = null;
 }
 
 async function ensureAndroidNotificationChannel() {
@@ -183,91 +226,96 @@ export async function registerPushNotificationsForUser(
   userId: string,
   options: RegisterPushOptions = {}
 ): Promise<PushRegistrationResult> {
-  notificationLog('Push notifications: starting registration attempt.', {
-    executionEnvironment: Constants.executionEnvironment,
-    force: options.force ?? false,
-    ignorePreference: options.ignorePreference ?? false,
-    isDevice: Device.isDevice,
-    platform: Platform.OS,
-    userId,
-  });
+  try {
+    notificationLog('Push notifications: starting registration attempt.', {
+      executionEnvironment: Constants.executionEnvironment,
+      force: options.force ?? false,
+      ignorePreference: options.ignorePreference ?? false,
+      isDevice: Device.isDevice,
+      platform: Platform.OS,
+      userId,
+    });
 
-  if (!userId) {
-    notificationLog('Push notifications: skipped registration because no userId was provided.');
-    return {
-      reason: 'Sign in to finish connecting notifications on this device.',
-      status: 'skipped',
-    };
-  }
+    if (!userId) {
+      notificationLog('Push notifications: skipped registration because no userId was provided.');
+      return {
+        reason: 'Sign in to finish connecting notifications on this device.',
+        status: 'skipped',
+      };
+    }
 
-  if (!options.ignorePreference) {
-    const notificationsEnabled = await getStoredNotificationsEnabled();
+    if (!options.ignorePreference) {
+      const notificationsEnabled = await getStoredNotificationsEnabled();
 
-    if (!notificationsEnabled) {
-      notificationLog('Push notifications: skipped registration because notifications are disabled in Settings.', {
+      if (!notificationsEnabled) {
+        notificationLog('Push notifications: skipped registration because notifications are disabled in Settings.', {
+          userId,
+        });
+        return { reason: 'Notifications are disabled in Settings.', status: 'skipped' };
+      }
+    }
+
+    if (!options.force && registrationAttempts.has(userId)) {
+      notificationLog('Push notifications: skipped duplicate registration attempt for this session.', {
         userId,
       });
-      return { reason: 'Notifications are disabled in Settings.', status: 'skipped' };
+      return { reason: 'Push notification registration already ran for this user.', status: 'skipped' };
     }
-  }
 
-  if (!options.force && registrationAttempts.has(userId)) {
-    notificationLog('Push notifications: skipped duplicate registration attempt for this session.', {
+    registrationAttempts.add(userId);
+
+    if (Platform.OS === 'web') {
+      notificationLog('Push notifications: skipped registration on web.', { userId });
+      return { reason: 'Expo push notifications are not registered on web.', status: 'skipped' };
+    }
+
+    if (Constants.executionEnvironment === 'storeClient') {
+      notificationLog('Push notifications: skipped registration in Expo Go/store client.', {
+        executionEnvironment: Constants.executionEnvironment,
+        userId,
+      });
+      return {
+        reason:
+          'Notifications are not available in Expo Go. Your preference was saved for a development build or APK.',
+        status: 'skipped',
+      };
+    }
+
+    if (!Device.isDevice) {
+      notificationLog('Push notifications: skipped registration because this is not a physical device.', {
+        userId,
+      });
+      return {
+        reason: 'Push notifications can only be enabled on a physical device.',
+        status: 'skipped',
+      };
+    }
+
+    const projectId = getEasProjectId();
+    notificationLog('Push notifications: resolved EAS projectId.', {
+      easConfigProjectId: Constants.easConfig?.projectId ?? null,
+      expoConfigProjectId: Constants.expoConfig?.extra?.eas?.projectId ?? null,
+      isDevice: Device.isDevice,
+      projectId: projectId ?? null,
       userId,
     });
-    return { reason: 'Push notification registration already ran for this user.', status: 'skipped' };
-  }
 
-  registrationAttempts.add(userId);
+    if (!projectId) {
+      const message =
+        'Notifications are not available in this build yet. Please try again in the APK or development build.';
 
-  if (Platform.OS === 'web') {
-    notificationLog('Push notifications: skipped registration on web.', { userId });
-    return { reason: 'Expo push notifications are not registered on web.', status: 'skipped' };
-  }
+      notificationError('Push notifications: missing EAS projectId for Expo push token registration.', {
+        executionEnvironment: Constants.executionEnvironment,
+        userId,
+      });
+      setPendingPushRegistrationNotice(message);
+      return {
+        message,
+        status: 'error',
+      };
+    }
 
-  if (Constants.executionEnvironment === 'storeClient') {
-    notificationLog('Push notifications: skipped registration in Expo Go/store client.', {
-      executionEnvironment: Constants.executionEnvironment,
-      userId,
-    });
-    return {
-      reason:
-        'Notifications are not available in Expo Go. Your preference was saved for a development build or APK.',
-      status: 'skipped',
-    };
-  }
-
-  if (!Device.isDevice) {
-    notificationLog('Push notifications: skipped registration because this is not a physical device.', {
-      userId,
-    });
-    return {
-      reason: 'Push notifications can only be enabled on a physical device.',
-      status: 'skipped',
-    };
-  }
-
-  const projectId = getEasProjectId();
-  notificationLog('Push notifications: resolved EAS projectId.', {
-    easConfigProjectId: Constants.easConfig?.projectId ?? null,
-    expoConfigProjectId: Constants.expoConfig?.extra?.eas?.projectId ?? null,
-    isDevice: Device.isDevice,
-    projectId: projectId ?? null,
-    userId,
-  });
-
-  if (!projectId) {
-    notificationError('Push notifications: missing EAS projectId for Expo push token registration.', {
-      executionEnvironment: Constants.executionEnvironment,
-      userId,
-    });
-    return {
-      message: 'Notifications are not available in this build yet. Please try again in the APK or development build.',
-      status: 'error',
-    };
-  }
-
-  try {
+    installNotificationHandler();
     await ensureAndroidNotificationChannel();
 
     const permissionStatus = await getNotificationPermissionStatus();
@@ -297,26 +345,24 @@ export async function registerPushNotificationsForUser(
     });
 
     await savePushToken(userId, options.email ?? null, pushToken.data);
+    clearPendingPushRegistrationNotice();
 
     return {
       status: 'registered',
       token: pushToken.data,
     };
   } catch (error) {
-    console.error('Push Error:', error);
     let errorMessage = 'We could not finish enabling notifications on this device. Please try again.';
 
     if (error instanceof Error) {
       errorMessage = error.message;
-      alert(error.message);
-    } else {
-      alert(errorMessage);
     }
 
     notificationError('Push notifications: failed to register Expo push token.', {
       error: getErrorDetails(error),
       userId,
     });
+    setPendingPushRegistrationNotice(errorMessage);
 
     return {
       message: errorMessage,
@@ -327,6 +373,7 @@ export async function registerPushNotificationsForUser(
 
 export async function unregisterPushNotificationsForUser(userId: string) {
   registrationAttempts.delete(userId);
+  clearPendingPushRegistrationNotice();
 
   const storedToken = await AsyncStorage.getItem(STORED_EXPO_PUSH_TOKEN_KEY);
 

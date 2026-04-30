@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { FadeInView } from '@/components/fade-in-view';
@@ -13,7 +13,11 @@ import {
   type GraceCourtThemeName,
 } from '@/constants/gracecourt-ui';
 import { useAuth } from '@/lib/auth-context';
-import { registerPushNotificationsForUser, unregisterPushNotificationsForUser } from '@/lib/push-notifications';
+import {
+  getPendingPushRegistrationNotice,
+  registerPushNotificationsForUser,
+  unregisterPushNotificationsForUser,
+} from '@/lib/push-notifications';
 import { useAppSettings } from '@/lib/settings-context';
 import { getFriendlyActionErrorMessage } from '@/lib/user-facing-error';
 
@@ -40,10 +44,19 @@ export default function SettingsScreen() {
   const [isSavingTheme, setIsSavingTheme] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>('success');
+  const [startupPushNotice, setStartupPushNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setStartupPushNotice(getPendingPushRegistrationNotice());
+  }, []);
 
   const setFeedback = (tone: FeedbackTone, message: string) => {
     setFeedbackTone(tone);
     setFeedbackMessage(message);
+  };
+
+  const refreshStartupPushNotice = () => {
+    setStartupPushNotice(getPendingPushRegistrationNotice());
   };
 
   const handleNotificationsToggle = async (enabled: boolean) => {
@@ -59,29 +72,57 @@ export default function SettingsScreen() {
 
       if (!currentUser) {
         setFeedback('success', enabled ? 'Notifications are enabled for your next sign in.' : 'Notifications are disabled.');
+        refreshStartupPushNotice();
         return;
       }
 
       if (!enabled) {
-        await unregisterPushNotificationsForUser(currentUser.id);
-        setFeedback('success', 'Notifications are disabled on this device.');
+        try {
+          await unregisterPushNotificationsForUser(currentUser.id);
+          setFeedback('success', 'Notifications are disabled on this device.');
+        } catch (error) {
+          await setNotificationsEnabled(true);
+          setFeedback(
+            'error',
+            getFriendlyActionErrorMessage(error, 'We could not disable notifications right now.')
+          );
+        }
+
+        refreshStartupPushNotice();
         return;
       }
 
-      const result = await registerPushNotificationsForUser(currentUser.id, {
-        email: currentUserProfile?.email ?? currentUser.email ?? null,
-        force: true,
-        ignorePreference: true,
-      });
+      let result: Awaited<ReturnType<typeof registerPushNotificationsForUser>>;
+
+      try {
+        result = await registerPushNotificationsForUser(currentUser.id, {
+          email: currentUserProfile?.email ?? currentUser.email ?? null,
+          force: true,
+          ignorePreference: true,
+        });
+      } catch (error) {
+        await setNotificationsEnabled(false);
+        setFeedback(
+          'error',
+          getFriendlyActionErrorMessage(
+            error,
+            'We could not enable notifications right now. Please try again.'
+          )
+        );
+        refreshStartupPushNotice();
+        return;
+      }
 
       if (result.status === 'registered') {
         setFeedback('success', 'Notifications are enabled on this device.');
+        refreshStartupPushNotice();
         return;
       }
 
       if (result.status === 'denied') {
         await setNotificationsEnabled(false);
         setFeedback('error', 'Notification permission was not granted.');
+        refreshStartupPushNotice();
         return;
       }
 
@@ -94,16 +135,19 @@ export default function SettingsScreen() {
             'We could not enable notifications right now. Please try again.'
           )
         );
+        refreshStartupPushNotice();
         return;
       }
 
       setFeedback('success', result.reason);
+      refreshStartupPushNotice();
     } catch (error) {
       console.error('Failed to update notification preference.', error);
       setFeedback(
         'error',
         getFriendlyActionErrorMessage(error, 'We could not update notifications right now.')
       );
+      refreshStartupPushNotice();
     } finally {
       setIsSavingNotifications(false);
     }
@@ -217,6 +261,13 @@ export default function SettingsScreen() {
               </View>
             </View>
           </View>
+
+          {startupPushNotice ? (
+            <View style={styles.noticeCard}>
+              <Text style={styles.noticeTitle}>Notification setup note</Text>
+              <Text style={styles.noticeText}>{startupPushNotice}</Text>
+            </View>
+          ) : null}
 
           {feedbackMessage ? (
             <View
@@ -395,6 +446,27 @@ function createStyles(colors: GraceCourtColorPalette) {
     },
     feedbackTextError: {
       color: '#A43A3A',
+    },
+    noticeCard: {
+      backgroundColor: '#FFF8E8',
+      borderWidth: 1,
+      borderColor: '#EACB7A',
+      borderRadius: GraceCourtRadius.medium,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      marginTop: GraceCourtSpacing.section,
+    },
+    noticeTitle: {
+      color: '#7A4C00',
+      fontSize: 13,
+      fontWeight: '800',
+      marginBottom: 4,
+      textTransform: 'uppercase',
+    },
+    noticeText: {
+      color: '#7A4C00',
+      fontSize: 13,
+      lineHeight: 20,
     },
     loadingRow: {
       flexDirection: 'row',

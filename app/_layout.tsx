@@ -3,15 +3,19 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
+import { DebugCrashBoundary } from '@/components/debug-crash-boundary';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider } from '@/lib/auth-context';
 import { SettingsProvider } from '@/lib/settings-context';
 
 export default function RootLayout() {
   return (
-    <SettingsProvider>
-      <RootLayoutContent />
-    </SettingsProvider>
+    <DebugCrashBoundary>
+      {/* Temporary debug-only crash boundary wraps the full app shell during APK launch triage. */}
+      <SettingsProvider>
+        <RootLayoutContent />
+      </SettingsProvider>
+    </DebugCrashBoundary>
   );
 }
 

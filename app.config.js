@@ -1,6 +1,7 @@
 const googleServicesFile =
   process.env.GOOGLE_SERVICES_JSON || './android/app/google-services.json';
 
+// Expo config only. Do not import runtime app modules into this file.
 module.exports = {
   expo: {
     name: 'gracecourt-app',
@@ -18,7 +19,7 @@ module.exports = {
       },
     },
     android: {
-      googleServicesFile: process.env.GOOGLE_SERVICES_JSON || "./android/app/google-services.json",
+      googleServicesFile,
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: './assets/images/android-icon-foreground.png',

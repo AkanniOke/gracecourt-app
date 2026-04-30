@@ -9,7 +9,6 @@ import {
 import type { Session, User } from '@supabase/supabase-js';
 
 import { ensureUserProfileExists, type UserProfile, type UserRole } from '@/lib/auth';
-import { registerPushNotificationsForUser } from '@/lib/push-notifications';
 import { supabase } from '@/lib/supabase';
 
 type AuthContextValue = {
@@ -29,30 +28,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
 
-  const registerPushToken = useCallback((user: User, profile: UserProfile | null) => {
-    void registerPushNotificationsForUser(user.id, {
-      email: profile?.email ?? user.email ?? null,
-    }).then((result) => {
-      if (!__DEV__) {
-        return;
-      }
-
-      if (result.status === 'registered') {
-        console.log('Expo push token registered for the current user.');
-        return;
-      }
-
-      if (result.status === 'denied') {
-        console.log('Expo push notification permission denied.', result.reason);
-        return;
-      }
-
-      if (result.status === 'error') {
-        console.error('Expo push notification registration failed.', result.message);
-      }
-    });
-  }, []);
-
   const refreshCurrentUserProfile = useCallback(async () => {
     const { data, error } = await supabase.auth.getSession();
 
@@ -70,9 +45,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     const profile = await ensureUserProfileExists({ user: nextSession.user });
     setCurrentUserProfile(profile);
-    registerPushToken(nextSession.user, profile);
     return profile;
-  }, [registerPushToken]);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -100,7 +74,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
           if (mounted) {
             setCurrentUserProfile(profile);
-            registerPushToken(data.session.user, profile);
           }
         } catch (profileError) {
           console.error('Failed to load user profile.', profileError);
@@ -134,7 +107,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
       try {
         const profile = await ensureUserProfileExists({ user: nextSession.user });
         setCurrentUserProfile(profile);
-        registerPushToken(nextSession.user, profile);
       } catch (profileError) {
         console.error('Failed to load user profile.', profileError);
         setCurrentUserProfile(null);
@@ -147,7 +119,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [registerPushToken]);
+  }, []);
 
   const value: AuthContextValue = {
     authReady,
