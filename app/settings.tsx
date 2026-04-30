@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, SafeAreaView, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { FadeInView } from '@/components/fade-in-view';
@@ -12,11 +12,9 @@ import {
   type GraceCourtColorPalette,
   type GraceCourtThemeName,
 } from '@/constants/gracecourt-ui';
-import { useAuth } from '@/lib/auth-context';
 import {
-  getPendingPushRegistrationNotice,
-  registerPushNotificationsForUser,
-  unregisterPushNotificationsForUser,
+  PUSH_NOTIFICATIONS_TEMPORARILY_DISABLED,
+  PUSH_NOTIFICATIONS_TEMPORARY_MESSAGE,
 } from '@/lib/push-notifications';
 import { useAppSettings } from '@/lib/settings-context';
 import { getFriendlyActionErrorMessage } from '@/lib/user-facing-error';
@@ -30,127 +28,20 @@ const themeOptions: { label: string; value: GraceCourtThemeName }[] = [
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { currentUser, currentUserProfile } = useAuth();
   const {
     colors,
-    notificationsEnabled,
-    selectedTheme,
-    setNotificationsEnabled,
-    setSelectedTheme,
     settingsReady,
+    selectedTheme,
+    setSelectedTheme,
   } = useAppSettings();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [isSavingNotifications, setIsSavingNotifications] = useState(false);
   const [isSavingTheme, setIsSavingTheme] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>('success');
-  const [startupPushNotice, setStartupPushNotice] = useState<string | null>(null);
-
-  useEffect(() => {
-    setStartupPushNotice(getPendingPushRegistrationNotice());
-  }, []);
 
   const setFeedback = (tone: FeedbackTone, message: string) => {
     setFeedbackTone(tone);
     setFeedbackMessage(message);
-  };
-
-  const refreshStartupPushNotice = () => {
-    setStartupPushNotice(getPendingPushRegistrationNotice());
-  };
-
-  const handleNotificationsToggle = async (enabled: boolean) => {
-    if (isSavingNotifications) {
-      return;
-    }
-
-    setIsSavingNotifications(true);
-    setFeedbackMessage('');
-
-    try {
-      await setNotificationsEnabled(enabled);
-
-      if (!currentUser) {
-        setFeedback('success', enabled ? 'Notifications are enabled for your next sign in.' : 'Notifications are disabled.');
-        refreshStartupPushNotice();
-        return;
-      }
-
-      if (!enabled) {
-        try {
-          await unregisterPushNotificationsForUser(currentUser.id);
-          setFeedback('success', 'Notifications are disabled on this device.');
-        } catch (error) {
-          await setNotificationsEnabled(true);
-          setFeedback(
-            'error',
-            getFriendlyActionErrorMessage(error, 'We could not disable notifications right now.')
-          );
-        }
-
-        refreshStartupPushNotice();
-        return;
-      }
-
-      let result: Awaited<ReturnType<typeof registerPushNotificationsForUser>>;
-
-      try {
-        result = await registerPushNotificationsForUser(currentUser.id, {
-          email: currentUserProfile?.email ?? currentUser.email ?? null,
-          force: true,
-          ignorePreference: true,
-        });
-      } catch (error) {
-        await setNotificationsEnabled(false);
-        setFeedback(
-          'error',
-          getFriendlyActionErrorMessage(
-            error,
-            'We could not enable notifications right now. Please try again.'
-          )
-        );
-        refreshStartupPushNotice();
-        return;
-      }
-
-      if (result.status === 'registered') {
-        setFeedback('success', 'Notifications are enabled on this device.');
-        refreshStartupPushNotice();
-        return;
-      }
-
-      if (result.status === 'denied') {
-        await setNotificationsEnabled(false);
-        setFeedback('error', 'Notification permission was not granted.');
-        refreshStartupPushNotice();
-        return;
-      }
-
-      if (result.status === 'error') {
-        await setNotificationsEnabled(false);
-        setFeedback(
-          'error',
-          getFriendlyActionErrorMessage(
-            result.message,
-            'We could not enable notifications right now. Please try again.'
-          )
-        );
-        refreshStartupPushNotice();
-        return;
-      }
-
-      setFeedback('success', result.reason);
-      refreshStartupPushNotice();
-    } catch (error) {
-      console.error('Failed to update notification preference.', error);
-      setFeedback(
-        'error',
-        getFriendlyActionErrorMessage(error, 'We could not update notifications right now.')
-      );
-      refreshStartupPushNotice();
-    } finally {
-      setIsSavingNotifications(false);
-    }
   };
 
   const handleThemeChange = async (theme: GraceCourtThemeName) => {
@@ -200,22 +91,18 @@ export default function SettingsScreen() {
               <View style={styles.settingTextWrap}>
                 <Text style={styles.settingTitle}>Enable Notifications</Text>
                 <Text style={styles.settingDescription}>
-                  Receive GraceCourt updates on this device.
+                  {PUSH_NOTIFICATIONS_TEMPORARILY_DISABLED
+                    ? PUSH_NOTIFICATIONS_TEMPORARY_MESSAGE
+                    : 'Receive GraceCourt updates on this device.'}
                 </Text>
               </View>
-              {isSavingNotifications ? (
-                <ActivityIndicator color={colors.accent} size="small" />
-              ) : (
-                <Switch
-                  ios_backgroundColor={colors.border}
-                  onValueChange={(nextValue) => {
-                    void handleNotificationsToggle(nextValue);
-                  }}
-                  thumbColor={notificationsEnabled ? colors.surface : colors.textMuted}
-                  trackColor={{ false: colors.border, true: colors.accent }}
-                  value={notificationsEnabled}
-                />
-              )}
+              <Switch
+                disabled
+                ios_backgroundColor={colors.border}
+                thumbColor={colors.textMuted}
+                trackColor={{ false: colors.border, true: colors.border }}
+                value={false}
+              />
             </View>
 
             <View style={styles.settingBlock}>
@@ -262,10 +149,10 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {startupPushNotice ? (
+          {PUSH_NOTIFICATIONS_TEMPORARILY_DISABLED ? (
             <View style={styles.noticeCard}>
               <Text style={styles.noticeTitle}>Notification setup note</Text>
-              <Text style={styles.noticeText}>{startupPushNotice}</Text>
+              <Text style={styles.noticeText}>{PUSH_NOTIFICATIONS_TEMPORARY_MESSAGE}</Text>
             </View>
           ) : null}
 

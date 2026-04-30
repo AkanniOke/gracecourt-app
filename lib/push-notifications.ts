@@ -9,6 +9,9 @@ import { supabase } from '@/lib/supabase';
 
 const STORED_EXPO_PUSH_TOKEN_KEY = 'gracecourt.expoPushToken';
 const STORED_PUSH_TOKEN_USER_ID_KEY = 'gracecourt.pushTokenUserId';
+export const PUSH_NOTIFICATIONS_TEMPORARILY_DISABLED = true;
+export const PUSH_NOTIFICATIONS_TEMPORARY_MESSAGE =
+  'Push notifications will be enabled in the next test build.';
 const PUSH_SETTINGS_NOTICE_FALLBACK =
   'Notifications could not finish connecting on this device. You can keep using the app normally and try again later.';
 
@@ -227,6 +230,14 @@ export async function registerPushNotificationsForUser(
   options: RegisterPushOptions = {}
 ): Promise<PushRegistrationResult> {
   try {
+    if (PUSH_NOTIFICATIONS_TEMPORARILY_DISABLED) {
+      notificationLog('Push notifications: registration skipped because native push setup is temporarily disabled.');
+      return {
+        reason: PUSH_NOTIFICATIONS_TEMPORARY_MESSAGE,
+        status: 'skipped',
+      };
+    }
+
     notificationLog('Push notifications: starting registration attempt.', {
       executionEnvironment: Constants.executionEnvironment,
       force: options.force ?? false,

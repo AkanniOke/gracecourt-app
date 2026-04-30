@@ -1,6 +1,3 @@
-const googleServicesFile =
-  process.env.GOOGLE_SERVICES_JSON || './android/app/google-services.json';
-
 // Expo config only. Do not import runtime app modules into this file.
 module.exports = {
   expo: {
@@ -19,7 +16,6 @@ module.exports = {
       },
     },
     android: {
-      googleServicesFile,
       adaptiveIcon: {
         backgroundColor: '#E6F4FE',
         foregroundImage: './assets/images/android-icon-foreground.png',
@@ -50,14 +46,6 @@ module.exports = {
       ],
       'expo-sqlite',
       'expo-audio',
-      [
-        'expo-notifications',
-        {
-          color: '#0A2E73',
-          defaultChannel: 'default',
-          icon: './assets/images/android-icon-monochrome.png',
-        },
-      ],
       'expo-asset',
     ],
     experiments: {
