@@ -8,7 +8,7 @@ module.exports = {
     icon: './assets/images/icon.png',
     scheme: 'gracecourtapp',
     userInterfaceStyle: 'automatic',
-    newArchEnabled: false,
+    newArchEnabled: true,
     ios: {
       supportsTablet: true,
       infoPlist: {
